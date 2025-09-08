@@ -21,7 +21,7 @@ segment_display = TM1637Display(SEG_CLK, SEG_DIO, length=4,
 ENC_A = board.GP14
 ENC_B = board.GP15
 ENC_SW = board.GP13
-enc = rotaryio.IncrementalEncoder(ENC_A, ENC_B)
+enc = rotaryio.IncrementalEncoder(ENC_B, ENC_A)
 enc_btn = digitalio.DigitalInOut(ENC_SW)
 
 #OLED setup
@@ -39,9 +39,82 @@ text_area = bitmap_label.Label(terminalio.FONT, text=text, color=0xFFFFFF, x=10,
 splash.append(text_area)
 oled.root_group = splash
 
+#asyncio event setup
+time_left = 0
+standby = asyncio.Event()
+set_time = asyncio.Event()
+countdown = asyncio.Event() #countdown is active
+finished = asyncio.Event()
+paused = asyncio.Event()
+pomodoro = asyncio.Event()
+
+#Menu setup
+class Menu:
+    def __init__(self, title, items):
+        self.title = title
+        self.items = items
+
+
+
+#Class for semantic events from physical events
+class EncoderMsg:
+    TURN = 0
+    CLICK = 1
+    def __init__(self, kind, delta=0):
+        self.kind = kind
+        self.delta = delta
+
+#Create queue to watch encodermsg updates
+enc_q = asyncio.Queue(4)
+
+#Encoder task that updates EncoderMsg
+async def encoder():
+    last_pos = enc.position
+    last_btn = enc_btn.value
+    
+    while True:
+        pos = enc.position
+        if pos != last_pos:
+            await enc_q.put(EncoderMsg(EncoderMsg.TURN, pos-last_pos))
+            last_pos = pos
+
+        if not enc_btn.value and last_btn:
+            await enc_q.put(EncoderMsg(EncoderMsg.CLICK))
+        
+        last_btn = enc_btn.value
+        await asyncio.sleep(0.02)
+
+#Task that counts down
+async def counter():
+    global time_left
+
+    while True:
+        await countdown.wait() #wait for countdown event
+        if time_left == 0: #clear countdown when time is 0
+            countdown.clear()
+            finished.set()
+            continue
+        
+        await asyncio.sleep(1)
+
+        if paused.is_set():
+            continue
+
+        time_left -= 1
+
+#Task that plays the finish animation
+async def counter_end():
+    while True:
+        await finished.wait()
+    
+
+
+
+
 
 async def segment():
-    counter = 5
+    counter = 10
+    shower = 21
     blink = True
     
     while True:
@@ -51,31 +124,37 @@ async def segment():
             time_str = f"{mins:02d}.{secs:02d}"
             segment_display.print(time_str)
             counter -= 1
-            await asyncio.sleep(1)
-
-        elif blink:
-            segment_display.clear()
-            blink = False
-            await asyncio.sleep(.5)
-        else:
-            segment_display.print("00.00")
-            blink = True
-            await asyncio.sleep(.5)
-
-async def encoder():
-    enc_last = None
-    btn_last = None
-
-    while True:
-        if enc.position != enc_last:
-            enc_last = enc.position
-            print(f"encoder position = {enc.position}")
         
-        if enc_btn.value != btn_last:
-            btn_last = enc_btn.value
-            print(f"button: {enc_btn.value}")
+        
+        else:
+            segment_display.print("11. 1")
 
-        await asyncio.sleep(0)
+        await(asyncio.sleep(0.02))
+    
+
+        # elif blink:
+        #     segment_display.clear()
+        #     blink = False
+        #     await asyncio.sleep(.5)
+        # else:
+        #     segment_display.print("00.00")
+        #     blink = True
+        #     await asyncio.sleep(.5)
+
+# async def encoder():
+#     enc_last = enc.position
+#     btn_last = enc_btn.value
+
+#     while True:
+#         if enc.position != enc_last:
+#             enc_last = enc.position
+#             print(f"encoder position = {enc.position}")
+        
+#         if enc_btn.value != btn_last:
+#             btn_last = enc_btn.value
+#             print(f"button: {enc_btn.value}")
+
+#         await asyncio.sleep(0)
 
         
 
@@ -87,3 +166,4 @@ async def main():
     await asyncio.gather(encoder_task)
 
 asyncio.run(main())
+
