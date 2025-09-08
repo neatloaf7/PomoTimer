@@ -56,7 +56,7 @@ class Menu:
 
 
 
-#Class for semantic events from physical events
+#class for encoder state
 class EncoderMsg:
     TURN = 0
     CLICK = 1
